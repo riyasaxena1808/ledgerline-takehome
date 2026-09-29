@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "rootDir": ".",
+    "outDir": "node_modules/.cache/ledgerline-worker"
+  },
+  "include": [
+    "scripts/workflow-worker.ts",
+    "src/lib/letter-provider.ts",
+    "src/lib/letter-rendering.ts",
+    "src/lib/azure-postgres.ts"
+  ]
+}

@@ -1,0 +1,11 @@
+.git
+.next
+node_modules
+out
+coverage
+tests
+docs
+secrets
+.env
+.env.*
+*.tsbuildinfo

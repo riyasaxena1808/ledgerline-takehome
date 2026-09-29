@@ -21,10 +21,17 @@ You need Node.js 20+ and Docker.
 npm install
 npm run db:up          # starts Postgres on localhost:5433
 cp .env.example .env.local
+npm run db:migrate     # creates the application tables
 npm run dev            # http://localhost:3000
+# in another terminal, start the durable workflow worker
+npm run worker
 ```
 
-Check http://localhost:3000/api/health returns `"ok": true`.
+Check http://localhost:3000/api/health returns `{ "ok": true, "database": "connected" }`.
+
+For a route-by-route UI tour, implementation map, local verification checklist,
+and separate production-like Compose instructions, see
+[docs/IMPLEMENTATION_GUIDE.md](docs/IMPLEMENTATION_GUIDE.md).
 
 ### What's in the starter
 
@@ -35,17 +42,118 @@ Check http://localhost:3000/api/health returns `"ok": true`.
 | `src/lib/letter-provider.ts` | A stubbed letter provider. `sendLetter()` validates, waits, logs and returns a fake id. **Don't modify it.** |
 | `src/lib/templates.ts` | Loads the templates and lists their placeholders |
 | `src/lib/db.ts` | A Postgres connection pool. Use it, or bring your own ORM / query builder. |
-| `infra/main.bicep` | An empty Bicep file to build your Azure infrastructure from (Part 4) |
-| `ARCHITECTURE.md` | Headings for your architecture write-up (Part 4) |
+| `infra/main.bicep` | Bicep for the private Azure production design (Part 4) |
+| `ARCHITECTURE.md` | Azure service choices, architecture diagram, security and operations notes (Part 4) |
 | `docker-compose.yml` | Postgres for local development only. Your production-like compose file is separate (Part 4). |
-| `src/app/*` | An app shell with a sidebar and a placeholder page for each route. Replace them with your own. |
+| `src/app/*` | App routes for CSV import, human review, approved matters, workflow design, durable runs, and staff tasks. |
 | `src/lib/nav.ts` | The sidebar routes. Add, rename or remove routes here. |
 | `src/components/ui/*` | [shadcn/ui](https://ui.shadcn.com) components. Add more with `npx shadcn@latest add <name>`. |
-| `migrations/` | Empty. Your schema goes here. |
+| `migrations/` | Numbered Postgres schema migrations, applied with `npm run db:migrate`. |
 
-The stack is Next.js, React, TypeScript, Tailwind, [shadcn/ui](https://ui.shadcn.com), Postgres and [React Flow](https://reactflow.dev) (`@xyflow/react`), all installed and wired up. The placeholder pages and routes are a starting point, not a spec, so change them however you like. There are **no database tables**: designing the schema is part of the task.
+The stack is Next.js, React, TypeScript, Tailwind, [shadcn/ui](https://ui.shadcn.com), Postgres and [React Flow](https://reactflow.dev) (`@xyflow/react`). The app pages implement the import, review, matters, workflow, run and staff-task flows. The initial schema is in `migrations/001_initial_schema.sql`.
 
-Useful scripts: `npm run typecheck`, `npm run db:psql` (a psql shell), `npm run db:reset` (deletes all data and starts Postgres with an empty database).
+Useful scripts: `npm run typecheck`, `npm test`, `npm run worker`, `npm run smoke:workflow` (with the app and worker running), `npm run db:migrate`, `npm run db:psql` (a psql shell), and `npm run db:reset` (deletes all data and starts Postgres with an empty database; run migrations afterward).
+
+The workflow worker claims due runs from Postgres, persists each step transition,
+and recovers expired worker leases after a restart. A Wait stores its resume time
+in `workflow_runs.scheduled_for`; staff tasks resume only the matter run that
+created them. Letter sends are recorded before calling the provider. If a
+provider accepted a letter but the worker could not save the response, the
+delivery remains pending and the run is stopped for manual reconciliation to
+avoid a possible duplicate send.
+
+### Production-like Docker Compose
+
+The production-like stack builds the optimized Next.js app and a separate worker,
+runs migrations before either starts, and keeps Postgres and Azurite on an
+internal-only network. Create local-only secret files first; `secrets/` is
+ignored by Git and must never be committed:
+
+```powershell
+New-Item -ItemType Directory -Force secrets
+# Generate a local password only for a new or confirmed-uninitialized volume.
+# For an initialized volume, preserve and use its original database password.
+$randomBytes = [byte[]]::new(48)
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+try {
+  $rng.GetBytes($randomBytes)
+  $postgresPassword = [Convert]::ToBase64String($randomBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+} finally { $rng.Dispose() }
+$databaseUrl = "postgres://ledgerline:$postgresPassword@db:5432/ledgerline"
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText('secrets/postgres_password.txt', $postgresPassword, $utf8NoBom)
+[System.IO.File]::WriteAllText('secrets/database_url.txt', $databaseUrl, $utf8NoBom)
+Set-Content -Path secrets/azurite_connection_string.txt -Value 'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;' -NoNewline
+
+# Confirm the local secret files are present and non-empty without printing them.
+$secretFiles = @(
+  'secrets/postgres_password.txt',
+  'secrets/database_url.txt',
+  'secrets/azurite_connection_string.txt'
+)
+foreach ($secretFile in $secretFiles) {
+  if (-not (Test-Path -LiteralPath $secretFile) -or
+      [string]::IsNullOrWhiteSpace((Get-Content -Raw -LiteralPath $secretFile))) {
+    throw "Required secret file is missing or empty: $secretFile"
+  }
+}
+
+docker compose -f docker-compose.prod.yml up --build
+```
+
+The password above is a local development example; replace it before using the
+stack beyond a disposable machine. The Azurite key is Microsoft's published
+emulator-only development key, not an Azure credential. In Azure, the app uses
+its managed identity and the storage account endpoint instead. The stack serves
+the web app at `http://localhost:3000`; stop it with
+`docker compose -f docker-compose.prod.yml down`. Add `-v` only when you intend
+to delete local database and uploaded-file data.
+If the PostgreSQL volume was initialized previously, keep the password file
+consistent with the password already stored in that database. The Compose
+configuration preserves the existing named volumes.
+
+### Implementation notes and handoff
+
+#### Key decisions and trade-offs
+
+- Every CSV row enters review. Safe whitespace/date cleanup is retained beside
+  the original row; ambiguous or malformed values are flagged for a person.
+  File hashes prevent accidental duplicate imports, and only approved rows
+  become matters.
+- PostgreSQL stores workflow state, wait schedules, staff tasks, and delivery
+  records. A separate worker uses leases so runs continue after a restart. If a
+  letter provider outcome is uncertain, the run pauses for reconciliation
+  instead of risking a duplicate send.
+- The supported workflow shape is a validated single path. It provides the
+  requested Start, End, Send letter, Wait, and Staff task behavior without
+  introducing branching semantics the runner cannot safely execute.
+- Docker Compose uses Azurite and file-mounted secrets. Azure uses private
+  PostgreSQL/Blob/Key Vault networking, separate managed identities, Entra
+  sign-in, Front Door Premium/WAF, and separate web/worker compute. The Azure
+  template is compiled and linted, but not deployed.
+- The local prototype has no user authentication; the Azure App Service
+  configuration enforces Entra sign-in before access. Azure setup has a few
+  documented manual steps for the app registration and secret, Front Door
+  private-link approval, database grants, image push, and first migration run.
+
+#### What I would do next
+
+- Run the production-like Compose stack and verify uploads against Azurite,
+  migration startup ordering, health checks, and restart recovery end to end.
+- Add a production identity-to-staff authorization model, then add operational
+  alerts for worker failures and the age of the oldest due workflow run.
+- Validate the Bicep with `what-if` in a disposable Azure subscription, check
+  regional SKU/quota availability, and exercise the documented manual setup.
+- Add a real letter-provider integration with idempotency support and a
+  reconciliation screen for deliveries left pending after uncertain outcomes.
+
+#### AI assistance
+
+Codex helped inspect the starter and assessment, break the work into reviewable
+stages, implement application and infrastructure changes, and run focused
+checks. I stepped in to set the order and approval boundaries, choose the
+service architecture and failure behavior, review each stage's diff and test
+results, and keep Azure deployment and production Compose startup out of scope.
 
 ---
 
@@ -108,7 +216,7 @@ This is where we test your **Azure infrastructure skills**. We want to see how y
 
 Add a `Dockerfile` and a `docker-compose.prod.yml` that run the app the way it would run in Azure:
 
-- **Separate containers** for `web` (the Next.js app), `worker` (the workflow runner from Part 3), `db` (Postgres) and `storage` ([Azurite](https://learn.microsoft.com/azure/storage/common/storage-use-azurite), Microsoft's Azure Storage emulator; use it for uploaded and rejected CSVs).
+- **Separate containers** for `web` (the Next.js app), `worker` (the workflow runner from Part 3), `db` (Postgres), and `azurite` ([Microsoft's Azure Storage emulator](https://learn.microsoft.com/azure/storage/common/storage-use-azurite), used for uploaded and rejected CSVs), with a one-time migration service.
 - Run the **production build**, not `npm run dev`.
 - **Two networks**, mirroring subnets: a public-facing one and a private one. The database and storage must **not** be reachable from the public side.
 - **Secrets come from files** (Docker secrets or mounted files), never hard-coded or committed. Add `secrets/` examples to your README, not to git.

@@ -1,0 +1,125 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ledgerline
+      POSTGRES_USER: ledgerline
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password.txt
+    secrets:
+      - source: postgres_password
+        target: postgres_password.txt
+    volumes:
+      - ledgerline-postgres:/var/lib/postgresql/data
+    networks:
+      - private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgerline -d ledgerline"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    command: ["azurite", "--blobHost", "0.0.0.0", "--location", "/data", "--disableProductStyleUrl", "--silent"]
+    volumes:
+      - ledgerline-azurite:/data
+    networks:
+      - private
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:10000').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migration
+    command: ["node", "scripts/migrate.mjs"]
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url.txt
+    secrets:
+      - source: database_url
+        target: database_url.txt
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - private
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    environment:
+      NODE_ENV: production
+      DATABASE_URL_FILE: /run/secrets/database_url.txt
+      STORAGE_CONNECTION_STRING_FILE: /run/secrets/azurite_connection_string.txt
+    secrets:
+      - source: database_url
+        target: database_url.txt
+      - source: azurite_connection_string
+        target: azurite_connection_string.txt
+    ports:
+      - "3000:3000"
+    networks:
+      - public
+      - private
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      azurite:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    environment:
+      NODE_ENV: production
+      DATABASE_URL_FILE: /run/secrets/database_url.txt
+      STORAGE_CONNECTION_STRING_FILE: /run/secrets/azurite_connection_string.txt
+    secrets:
+      - source: database_url
+        target: database_url.txt
+      - source: azurite_connection_string
+        target: azurite_connection_string.txt
+    networks:
+      - private
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      azurite:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  public:
+    driver: bridge
+  private:
+    driver: bridge
+    internal: true
+
+volumes:
+  ledgerline-postgres:
+  ledgerline-azurite:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  database_url:
+    file: ./secrets/database_url.txt
+  azurite_connection_string:
+    file: ./secrets/azurite_connection_string.txt

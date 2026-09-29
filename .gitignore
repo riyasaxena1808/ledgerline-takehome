@@ -8,3 +8,4 @@ next-env.d.ts
 
 # Local secrets for docker compose
 secrets/
+.tools/

@@ -11,8 +11,6 @@ import {
 } from "@/components/ui/card";
 import { navGroups } from "@/lib/nav";
 
-// Replace this with your own home page, e.g. a dashboard of recent imports
-// and active runs.
 export default function Home() {
   return (
     <>
@@ -20,12 +18,13 @@ export default function Home() {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-10 p-6 md:p-10">
         <div className="max-w-2xl space-y-1">
           <h2 className="text-2xl font-semibold tracking-tight">
-            The starter is running
+            Import, review, and process matters
           </h2>
           <p className="text-muted-foreground">
-            Every page in the sidebar is a placeholder. The brief is in the
-            README. Sample data is in <code>data/matters.csv</code>, and letter
-            templates are in <code>templates/</code>.
+            Start with a CSV import, review every row, then design and publish a
+            letter workflow for approved matters. Runs are advanced by the
+            separate workflow worker. The assessment and setup guide are in the
+            README and <code>docs/IMPLEMENTATION_GUIDE.md</code>.
           </p>
         </div>
 

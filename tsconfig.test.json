@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "strict": true,
+    "skipLibCheck": true,
+    "rootDir": "src/lib",
+    "outDir": "node_modules/.cache/ledgerline-tests"
+  },
+  "files": [
+    "src/lib/matter-csv-validation.ts",
+    "src/lib/workflow-validation.ts",
+    "src/lib/blob-storage.ts"
+  ]
+}

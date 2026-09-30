@@ -27,6 +27,7 @@ CMD ["node", "scripts/migrate.mjs"]
 
 FROM node:22-alpine AS web
 WORKDIR /app
+COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000

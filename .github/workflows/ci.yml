@@ -50,6 +50,15 @@ jobs:
           push: false
           tags: ledgerline/worker:ci
 
+      - name: Build migration image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: migration
+          push: false
+          tags: ledgerline/migration:ci
+
       - name: Set up Bicep
         uses: anthony-c-martin/setup-bicep@v1
         with:

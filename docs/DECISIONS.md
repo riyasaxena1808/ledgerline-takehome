@@ -138,14 +138,16 @@
   attempt could not fetch the starter's Google Font, then passed with network
   access.
 - `docker compose -f docker-compose.prod.yml config --quiet` passed.
-- `docker compose -f docker-compose.prod.yml build web worker` built both
-  optimized images successfully. No production Compose containers were started.
-- Blob SDK's no-configuration path is unit-tested. The actual upload against
-  Azurite awaits an approved Compose run, so storage networking and container
-  health have not yet had a live container smoke test.
-- Both integration smoke tests deleted their synthetic rows and matters.
-- The database was empty before and after the smoke test. No secrets or row
-  contents were printed.
+- The initial local check built the optimized web and worker images. The
+  production-like Compose run and migration-image build were completed later;
+  see the final verification below.
+- Blob SDK's no-configuration path is unit-tested. A later production-like
+  Compose run successfully uploaded the 50-row test CSV to Azurite and saved
+  all rows to PostgreSQL; see the final local verification below.
+- The original integration smoke tests deleted their synthetic rows and
+  matters. Later final runner testing left only clearly prefixed test records;
+  the original CSV import data was retained. No secrets or row contents were
+  printed.
 
 ## Azure infrastructure
 
@@ -172,14 +174,15 @@
 ## Continuous integration
 
 - Run CI for every push and pull request on Node.js 22. It installs from the
-  lockfile, typechecks, runs the unit suite, builds both production Docker
-  targets without publishing them, and compiles/lints `infra/main.bicep`.
+  lockfile, typechecks, runs the unit suite, builds the web, worker, and
+  migration Docker targets without publishing them, and compiles/lints
+  `infra/main.bicep`.
 - CI uses no Azure credentials, does not deploy infrastructure, and does not
   push images. Local equivalents are `npm ci`, `npm run typecheck`, `npm test`,
-  `docker compose -f docker-compose.prod.yml build web worker`, and the Bicep
-  build/lint commands.
+  `docker compose -f docker-compose.prod.yml build web worker migrate`, and the
+  Bicep build/lint commands.
 - `npm run typecheck`, `npm test` (11 tests), Bicep build, and Bicep lint all
-  passed after the CI workflow was added. Both production image targets had
+  passed after the CI workflow was added. All production image targets had
   already built successfully in the Docker stage; the CI workflow does the
   equivalent image builds on every push and pull request.
 
@@ -188,8 +191,9 @@
 - README now records local and Compose startup, application and Azure design
   trade-offs, known manual setup, deferred production validation, next steps,
   and where AI assistance was used versus human direction and review.
-- The final documentation review does not run or deploy services. The Compose
-  Azurite integration smoke and Azure what-if/deployment remain unverified.
+- Local production-like Compose verification covered Azurite-backed import,
+  migration startup, workflow independence/failure/recovery, and worker
+  restart. Azure `what-if` and deployment remain unverified and were not run.
 - Added `docs/IMPLEMENTATION_GUIDE.md` with the assessment-to-code map, sidebar
   URLs, local/Compose run steps, UI walkthrough, and verification commands.
 - Corrected the Overview's starter placeholder copy and made each import result
@@ -209,21 +213,17 @@
 - Only the web service publishes a host port in the full-stack file. The
   worker, database, migration service, and Azurite use the private network;
   worker and web receive the internal Azurite endpoint through the secret file.
-- `docker compose -f docker-compose.prod.yml config --quiet` passed and
-  `docker compose -f docker-compose.prod.yml build web worker` built both
-  images. No containers were started. Docker-to-Docker DNS, database migration
-  startup, and Azurite API connectivity therefore remain to be smoke-tested
-  with an approved Compose run.
+- `docker compose -f docker-compose.prod.yml config --quiet` passed and the
+  web, worker, and migration images built. A later local Compose run verified
+  database migration startup, service connectivity, health checks, and the
+  Azurite-backed CSV import.
 - The production Compose configuration lists exactly `db`, `migrate`,
   `azurite`, `web`, and `worker`; the extra service is the required
   one-time migration job.
 - Align each in-container `*_FILE` path with the matching secret target name
   including its `.txt` suffix. The host source remains the existing ignored
   `secrets/*.txt` file.
-- The three local secret files exist but each has a reported size of one byte;
-  access controls prevented reading their contents. Re-enter/verify the local
-  values using the README instructions before startup. Secret values were not
-  printed or changed, and database volumes were not modified.
-- Re-ran `docker compose -f docker-compose.prod.yml config --quiet`: passed.
-  No containers were started, so this does not establish that PostgreSQL can
-  initialize with the current secret file or that migrations complete.
+- Local secret files remain ignored by Git. Their contents were not printed or
+  changed during verification, and the database volumes were not modified.
+- The production-like stack started successfully with its existing local
+  configuration; migrations completed before web and worker startup.

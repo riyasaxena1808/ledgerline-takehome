@@ -138,8 +138,8 @@ configuration preserves the existing named volumes.
 
 #### What I would do next
 
-- Run the production-like Compose stack and verify uploads against Azurite,
-  migration startup ordering, health checks, and restart recovery end to end.
+- Add browser-driven end-to-end tests for the production-like Compose stack and
+  run them in CI, including import/review and Runs UI interactions.
 - Add a production identity-to-staff authorization model, then add operational
   alerts for worker failures and the age of the oldest due workflow run.
 - Validate the Bicep with `what-if` in a disposable Azure subscription, check
@@ -153,7 +153,7 @@ Codex helped inspect the starter and assessment, break the work into reviewable
 stages, implement application and infrastructure changes, and run focused
 checks. I stepped in to set the order and approval boundaries, choose the
 service architecture and failure behavior, review each stage's diff and test
-results, and keep Azure deployment and production Compose startup out of scope.
+results, and keep Azure deployment out of scope.
 
 ---
 

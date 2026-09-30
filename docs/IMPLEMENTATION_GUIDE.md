@@ -158,11 +158,13 @@ then resumes a run, checks that a Wait schedule is persisted and resumed, and
 removes its synthetic database rows in a `finally` cleanup. Do not stop the
 app/worker while this smoke command is running.
 
-The prior implementation checks recorded in [DECISIONS.md](DECISIONS.md)
-include live import/review/matter/workflow API smoke tests, the worker smoke,
-11 unit tests, Docker image builds, Compose configuration validation, and
-Bicep compile/lint. Azure deployment and a live Azurite container integration
-test have not been performed.
+The implementation checks recorded in [DECISIONS.md](DECISIONS.md) include
+live import/review/matter/workflow API smoke tests, the worker smoke, 11 unit
+tests, Docker image builds, Compose configuration validation, and Bicep
+compile/lint. The production-like Compose stack has since been exercised
+locally: the 50-row CSV import persisted to PostgreSQL and Azurite, and
+workflow independence, failure recording, and worker restart recovery were
+verified. Azure deployment and `what-if` have not been performed.
 
 ## Optional production-like Docker Compose
 
@@ -185,9 +187,12 @@ docker compose -f docker-compose.prod.yml logs migrate
 docker compose -f docker-compose.prod.yml logs web worker
 ```
 
-Open the same sidebar URLs above to verify the UI. This setup tests the
-production web/worker images, automatic migrations, private Postgres network,
-and Azurite-backed CSV storage locally. It has not yet been run end to end.
+Open the same sidebar URLs above to verify the UI. The local production-like
+Compose stack has been run: its web, worker, database, Azurite, and migration
+services started successfully; the CSV import stored 50 rows in PostgreSQL
+and its source blob in Azurite; workflow independence, failure handling, and
+worker restart recovery were exercised locally. No Azure resources were
+deployed.
 The Compose service is named `azurite`; the web and worker can resolve it on
 their shared private network. To check that the worker container resolves the
 Azurite service after startup:
@@ -226,6 +231,6 @@ decisions are collected in [DECISIONS.md](DECISIONS.md).
 - Workflow definitions are deliberately restricted to one connected path; no
   branching or parallel workflow steps are implemented.
 - The letter integration is the supplied fake provider.
-- The production-like Compose setup builds and validates, but has not yet been
-  started for an Azurite integration run. Azure Bicep has compiled and linted,
-  but has not been deployed or tested with `what-if`.
+- Azure Bicep has compiled and linted, but has not been deployed or tested with
+  `what-if`. The production-like Compose stack and local Azurite integration
+  have been exercised; this does not validate Azure deployment behavior.
